@@ -74,6 +74,56 @@
     cursor: not-allowed;
 }
 
+/* OOC messages remain wrapped in chat data for the model, but are visually distinct. */
+#chat .mes.ooc-chat-message .mes_text {
+    color: var(--ooc-chat-message-color, #8fd3ff) !important;
+}
+
+#ooc-chat-settings .ooc-chat-settings-content {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#ooc-chat-settings label {
+    font-size: 0.82em;
+    font-weight: 600;
+}
+
+#ooc-chat-settings small {
+    opacity: 0.7;
+    line-height: 1.35;
+}
+
+#ooc-chat-settings #ooc-chat-instruction {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 56px;
+}
+
+#ooc-chat-settings .ooc-chat-color-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#ooc-chat-settings #ooc-chat-color {
+    width: 40px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+#ooc-chat-settings #ooc-chat-color-value {
+    font-family: monospace;
+    font-size: 0.82em;
+    opacity: 0.8;
+}
+
 @keyframes ooc-chat-spin {
     to { transform: rotate(360deg); }
 }
