@@ -1,0 +1,104 @@
+#ooc-chat-container {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px 6px 4px;
+    margin: 0;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 65%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 82%, transparent);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+    -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+}
+
+#ooc-chat-container .ooc-chat-label {
+    flex: 0 0 auto;
+    align-self: center;
+    min-width: 34px;
+    padding: 4px 6px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 70%, transparent);
+    border-radius: 6px;
+    color: var(--SmartThemeBodyColor);
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 14%, transparent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    opacity: 0.9;
+    user-select: none;
+}
+
+#ooc-chat-input {
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    max-height: 96px;
+    padding: 6px 8px;
+    resize: none;
+    overflow-y: auto;
+    border-radius: 7px;
+    font: inherit;
+    line-height: 1.35;
+}
+
+#ooc-chat-input::placeholder {
+    opacity: 0.65;
+}
+
+#ooc-chat-send {
+    flex: 0 0 34px;
+    width: 34px;
+    height: 32px;
+    min-width: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+}
+
+#ooc-chat-send.ooc-chat-sending i {
+    animation: ooc-chat-spin 0.9s linear infinite;
+}
+
+#ooc-chat-send.ooc-chat-sending i::before {
+    content: "\f110";
+}
+
+#ooc-chat-input:disabled,
+#ooc-chat-send:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+@keyframes ooc-chat-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 700px) {
+    #ooc-chat-container {
+        gap: 4px;
+        padding: 4px 5px 3px;
+    }
+
+    #ooc-chat-container .ooc-chat-label {
+        min-width: 30px;
+        padding-inline: 5px;
+        font-size: 0.68rem;
+    }
+
+    #ooc-chat-input {
+        min-height: 30px;
+        padding: 5px 7px;
+    }
+
+    #ooc-chat-send {
+        flex-basis: 32px;
+        width: 32px;
+        min-width: 32px;
+        height: 30px;
+    }
+}
