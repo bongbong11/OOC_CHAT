@@ -1,4 +1,4 @@
-// OOC Chat v1.2.0
+// OOC Chat v1.3.0
 // Dedicated OOC input bar for SillyTavern.
 
 import { extension_settings, getContext } from '../../../extensions.js';
@@ -18,8 +18,8 @@ const defaultSettings = {
 
 let settings = {};
 let sending = false;
-let bodyObserver = null;
-let chatObserver = null;
+let eventsBound = false;
+let initialized = false;
 
 function loadSettings() {
     if (!extension_settings[EXT_NAME]) {
@@ -91,8 +91,11 @@ async function emitIfAvailable(context, eventName, messageId) {
     await context.eventSource.emit(eventType, messageId);
 }
 
-function buildOocMessageText(text) {
-    const instruction = String(settings.instruction ?? '').trim();
+function getInstruction() {
+    return String(settings.instruction ?? '').trim();
+}
+
+function buildOocMessageText(text, instruction = getInstruction()) {
     const inner = instruction ? `${instruction} ${text}` : text;
     return `(OOC: ${inner})`;
 }
@@ -100,6 +103,7 @@ function buildOocMessageText(text) {
 function getOocDisplayText(message) {
     if (!message?.extra?.ooc_chat) return null;
 
+    // Compatibility with v1.1-v1.2 messages, which stored the display text directly.
     if (typeof message.extra.ooc_display_text === 'string') {
         return message.extra.ooc_display_text;
     }
@@ -110,8 +114,9 @@ function getOocDisplayText(message) {
 
     let inner = match[1].trim();
     const candidates = [
-        String(settings.instruction ?? '').trim(),
-        'Answer in English.',
+        typeof message.extra.ooc_instruction === 'string' ? message.extra.ooc_instruction.trim() : '',
+        getInstruction(),
+        defaultSettings.instruction,
     ].filter(Boolean);
 
     for (const prefix of candidates) {
@@ -124,31 +129,43 @@ function getOocDisplayText(message) {
     return inner;
 }
 
-function decorateOocMessages() {
+function decorateOocMessage(messageId) {
+    const id = Number(messageId);
+    if (!Number.isInteger(id)) return;
+
+    const context = getContext();
+    const message = context?.chat?.[id];
+    if (!message?.extra?.ooc_chat) return;
+
+    const messageElement = document.querySelector(`#chat .mes[mesid="${id}"]`);
+    const textElement = messageElement?.querySelector('.mes_text');
+    if (!messageElement || !textElement) return;
+
+    const displayText = getOocDisplayText(message);
+    if (displayText === null) return;
+
+    messageElement.classList.add('ooc-chat-message');
+    messageElement.dataset.oocChat = 'true';
+
+    if (textElement.textContent !== displayText) {
+        textElement.textContent = displayText;
+    }
+}
+
+function decorateVisibleOocMessages() {
     const context = getContext();
     if (!context || !Array.isArray(context.chat)) return;
 
     document.querySelectorAll('#chat .mes[mesid]').forEach((messageElement) => {
-        const messageId = Number(messageElement.getAttribute('mesid'));
-        if (!Number.isInteger(messageId)) return;
-
-        const message = context.chat[messageId];
-        if (!message?.extra?.ooc_chat) {
-            messageElement.classList.remove('ooc-chat-message');
-            return;
-        }
-
-        const displayText = getOocDisplayText(message);
-        const textElement = messageElement.querySelector('.mes_text');
-        if (!textElement || displayText === null) return;
-
-        messageElement.classList.add('ooc-chat-message');
-        messageElement.dataset.oocChat = 'true';
-
-        if (textElement.textContent !== displayText) {
-            textElement.textContent = displayText;
-        }
+        const id = Number(messageElement.getAttribute('mesid'));
+        if (!Number.isInteger(id)) return;
+        if (context.chat[id]?.extra?.ooc_chat) decorateOocMessage(id);
     });
+}
+
+function scheduleVisibleDecoration() {
+    requestAnimationFrame(() => decorateVisibleOocMessages());
+    setTimeout(decorateVisibleOocMessages, 100);
 }
 
 async function sendOocMessage() {
@@ -173,16 +190,16 @@ async function sendOocMessage() {
         return;
     }
 
-    const messageText = buildOocMessageText(text);
+    const instruction = getInstruction();
     const message = {
         name: context.name1,
         is_user: true,
         is_system: false,
         send_date: new Date().toISOString(),
-        mes: messageText,
+        mes: buildOocMessageText(text, instruction),
         extra: {
             ooc_chat: true,
-            ooc_display_text: text,
+            ooc_instruction: instruction,
         },
     };
 
@@ -197,7 +214,7 @@ async function sendOocMessage() {
         await emitIfAvailable(context, 'USER_MESSAGE_RENDERED', messageId);
         await context.saveChat();
 
-        decorateOocMessages();
+        decorateOocMessage(messageId);
 
         input.value = '';
         resizeInput(input);
@@ -258,11 +275,15 @@ function buildBar() {
     return container;
 }
 
-function injectSettingsPanel() {
-    if (document.getElementById(SETTINGS_ID)) return;
+function findSettingsRoot() {
+    return document.getElementById('extensions_settings2') || document.getElementById('extensions_settings');
+}
 
-    const settingsRoot = document.getElementById('extensions_settings');
-    if (!settingsRoot) return;
+function injectSettingsPanel() {
+    if (document.getElementById(SETTINGS_ID)) return true;
+
+    const settingsRoot = findSettingsRoot();
+    if (!settingsRoot) return false;
 
     const panel = document.createElement('div');
     panel.id = SETTINGS_ID;
@@ -330,9 +351,11 @@ function injectSettingsPanel() {
         applyBarVisibility();
         applyMessageColor();
         saveSettings();
-        decorateOocMessages();
+        scheduleVisibleDecoration();
         toast('설정을 저장했어.', 'success');
     });
+
+    return true;
 }
 
 function ensureOocBar() {
@@ -340,49 +363,72 @@ function ensureOocBar() {
 
     if (!bar) {
         const sendForm = document.getElementById('send_form');
-        if (!sendForm?.parentElement) return;
+        if (!sendForm?.parentElement) return false;
 
         bar = buildBar();
         sendForm.parentElement.insertBefore(bar, sendForm);
     }
 
     applyBarVisibility();
+    return true;
 }
 
-function ensureChatObserver() {
-    const chat = document.getElementById('chat');
-    if (!chat || chatObserver) return;
+function ensureUi() {
+    ensureOocBar();
+    injectSettingsPanel();
+}
 
-    chatObserver = new MutationObserver(() => decorateOocMessages());
-    chatObserver.observe(chat, {
-        childList: true,
-        subtree: true,
+function scheduleUiBootstrap() {
+    [0, 250, 1000, 2500, 5000].forEach((delay) => {
+        setTimeout(ensureUi, delay);
     });
 }
 
-function startBodyObserver() {
-    if (bodyObserver || !document.body) return;
+function bindEvents() {
+    if (eventsBound) return;
 
-    bodyObserver = new MutationObserver(() => {
-        ensureOocBar();
-        injectSettingsPanel();
-        ensureChatObserver();
-    });
+    const context = getContext();
+    const eventSource = context?.eventSource;
+    const eventTypes = context?.eventTypes;
+    if (!eventSource || !eventTypes) return;
 
-    bodyObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-    });
+    if (eventTypes.APP_READY) {
+        eventSource.on(eventTypes.APP_READY, () => {
+            ensureUi();
+            scheduleVisibleDecoration();
+        });
+    }
+
+    if (eventTypes.CHAT_CHANGED) {
+        eventSource.on(eventTypes.CHAT_CHANGED, () => {
+            ensureOocBar();
+            scheduleVisibleDecoration();
+        });
+    }
+
+    if (eventTypes.USER_MESSAGE_RENDERED) {
+        eventSource.on(eventTypes.USER_MESSAGE_RENDERED, (messageId) => decorateOocMessage(messageId));
+    }
+
+    if (eventTypes.MESSAGE_EDITED) {
+        eventSource.on(eventTypes.MESSAGE_EDITED, (messageId) => {
+            setTimeout(() => decorateOocMessage(messageId), 0);
+        });
+    }
+
+    eventsBound = true;
 }
 
 async function initOocChat() {
+    if (initialized) return;
+    initialized = true;
+
     loadSettings();
-    ensureOocBar();
-    injectSettingsPanel();
-    ensureChatObserver();
-    decorateOocMessages();
-    startBodyObserver();
-    console.log('[OOC Chat] v1.2.0 loaded');
+    bindEvents();
+    ensureUi();
+    scheduleUiBootstrap();
+    scheduleVisibleDecoration();
+    console.log('[OOC Chat] v1.3.0 loaded');
 }
 
 export async function init() {
@@ -394,10 +440,3 @@ if (document.readyState === 'loading') {
 } else {
     initOocChat();
 }
-
-setTimeout(() => {
-    ensureOocBar();
-    injectSettingsPanel();
-    ensureChatObserver();
-    decorateOocMessages();
-}, 500);
