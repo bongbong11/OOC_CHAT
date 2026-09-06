@@ -1,4 +1,4 @@
-// OOC Chat v1.1.0
+// OOC Chat v1.2.0
 // Dedicated OOC input bar for SillyTavern.
 
 import { extension_settings, getContext } from '../../../extensions.js';
@@ -13,6 +13,7 @@ const SETTINGS_ID = 'ooc-chat-settings';
 const defaultSettings = {
     instruction: 'Answer in English.',
     messageColor: '#8fd3ff',
+    showInput: true,
 };
 
 let settings = {};
@@ -33,6 +34,9 @@ function loadSettings() {
     if (typeof settings.messageColor !== 'string' || !settings.messageColor) {
         settings.messageColor = defaultSettings.messageColor;
     }
+    if (typeof settings.showInput !== 'boolean') {
+        settings.showInput = defaultSettings.showInput;
+    }
 
     applyMessageColor();
 }
@@ -44,6 +48,12 @@ function saveSettings() {
 
 function applyMessageColor() {
     document.documentElement.style.setProperty('--ooc-chat-message-color', settings.messageColor || defaultSettings.messageColor);
+}
+
+function applyBarVisibility() {
+    const bar = document.getElementById(CONTAINER_ID);
+    if (!bar) return;
+    bar.hidden = !settings.showInput;
 }
 
 function toast(message, type = 'info') {
@@ -94,7 +104,6 @@ function getOocDisplayText(message) {
         return message.extra.ooc_display_text;
     }
 
-    // Backward compatibility for messages created by v1.0.0.
     const raw = String(message.mes ?? '');
     const match = raw.match(/^\(ooc:\s*([\s\S]*?)\)$/i);
     if (!match) return raw;
@@ -136,7 +145,6 @@ function decorateOocMessages() {
         messageElement.classList.add('ooc-chat-message');
         messageElement.dataset.oocChat = 'true';
 
-        // Keep the stored message wrapped for the model, but show only what the user typed.
         if (textElement.textContent !== displayText) {
             textElement.textContent = displayText;
         }
@@ -181,7 +189,6 @@ async function sendOocMessage() {
     setSendingState(true);
 
     try {
-        // Add the OOC text as a real user message without touching #send_textarea.
         context.chat.push(message);
         const messageId = context.chat.length - 1;
 
@@ -196,7 +203,6 @@ async function sendOocMessage() {
         resizeInput(input);
         context.scrollChatToBottom?.();
 
-        // Generate from the newly-added OOC user message.
         await context.executeSlashCommandsWithOptions('/trigger', {
             handleParserErrors: true,
             handleExecutionErrors: true,
@@ -240,7 +246,6 @@ function buildBar() {
 
     input.addEventListener('input', () => resizeInput(input));
     input.addEventListener('keydown', (event) => {
-        // Do not send in the middle of Korean/Japanese/Chinese IME composition.
         if (event.isComposing || event.keyCode === 229) return;
 
         if (event.key === 'Enter' && !event.shiftKey) {
@@ -269,6 +274,11 @@ function injectSettingsPanel() {
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down interactable" tabindex="0"></div>
             </div>
             <div class="inline-drawer-content ooc-chat-settings-content">
+                <label class="checkbox_label" for="ooc-chat-show-input">
+                    <input id="ooc-chat-show-input" type="checkbox" />
+                    <span>OOC 입력창 보이기</span>
+                </label>
+
                 <label for="ooc-chat-instruction">OOC 뒤 고정 문구</label>
                 <textarea
                     id="ooc-chat-instruction"
@@ -291,14 +301,22 @@ function injectSettingsPanel() {
 
     settingsRoot.appendChild(panel);
 
+    const showInput = panel.querySelector('#ooc-chat-show-input');
     const instructionInput = panel.querySelector('#ooc-chat-instruction');
     const colorInput = panel.querySelector('#ooc-chat-color');
     const colorValue = panel.querySelector('#ooc-chat-color-value');
     const saveButton = panel.querySelector('#ooc-chat-settings-save');
 
+    showInput.checked = settings.showInput;
     instructionInput.value = settings.instruction;
     colorInput.value = settings.messageColor;
     colorValue.textContent = settings.messageColor;
+
+    showInput.addEventListener('change', () => {
+        settings.showInput = showInput.checked;
+        applyBarVisibility();
+        saveSettings();
+    });
 
     colorInput.addEventListener('input', () => {
         colorValue.textContent = colorInput.value;
@@ -306,8 +324,10 @@ function injectSettingsPanel() {
     });
 
     saveButton.addEventListener('click', () => {
+        settings.showInput = showInput.checked;
         settings.instruction = instructionInput.value.trim();
         settings.messageColor = colorInput.value;
+        applyBarVisibility();
         applyMessageColor();
         saveSettings();
         decorateOocMessages();
@@ -316,13 +336,17 @@ function injectSettingsPanel() {
 }
 
 function ensureOocBar() {
-    if (document.getElementById(CONTAINER_ID)) return;
+    let bar = document.getElementById(CONTAINER_ID);
 
-    const sendForm = document.getElementById('send_form');
-    if (!sendForm?.parentElement) return;
+    if (!bar) {
+        const sendForm = document.getElementById('send_form');
+        if (!sendForm?.parentElement) return;
 
-    const bar = buildBar();
-    sendForm.parentElement.insertBefore(bar, sendForm);
+        bar = buildBar();
+        sendForm.parentElement.insertBefore(bar, sendForm);
+    }
+
+    applyBarVisibility();
 }
 
 function ensureChatObserver() {
@@ -358,7 +382,7 @@ async function initOocChat() {
     ensureChatObserver();
     decorateOocMessages();
     startBodyObserver();
-    console.log('[OOC Chat] v1.1.0 loaded');
+    console.log('[OOC Chat] v1.2.0 loaded');
 }
 
 export async function init() {
