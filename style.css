@@ -6,10 +6,30 @@
     width: 100%;
     padding: 5px 6px 4px;
     margin: 0;
-    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 65%, transparent);
-    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 82%, transparent);
-    backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
-    -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+
+    /* Follow the active SillyTavern theme. */
+    color: var(--SmartThemeBodyColor);
+    font-family: var(--mainFontFamily);
+    font-size: var(--mainFontSize);
+    background-color: var(--SmartThemeBlurTintColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
+    box-shadow: 0 0 calc(var(--shadowWidth) * 1px) var(--SmartThemeShadowColor);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength));
+    -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength));
+}
+
+/* The base rule above uses display:flex, so force hidden to win. */
+#ooc-chat-container[hidden],
+#ooc-chat-container.ooc-chat-hidden {
+    display: none !important;
+}
+
+body.no-blur #ooc-chat-container {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--SmartThemeBlurTintColor);
 }
 
 #ooc-chat-container .ooc-chat-label {
@@ -17,18 +37,18 @@
     align-self: center;
     min-width: 34px;
     padding: 4px 6px;
-    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 70%, transparent);
+    border: 1px solid var(--SmartThemeBorderColor);
     border-radius: 6px;
     color: var(--SmartThemeBodyColor);
-    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 14%, transparent);
+    background-color: var(--SmartThemeChatTintColor, var(--SmartThemeBlurTintColor));
     font-size: 0.72rem;
     font-weight: 700;
     line-height: 1;
     text-align: center;
-    opacity: 0.9;
     user-select: none;
 }
 
+/* text_pole supplies the active ST theme; only size/layout is customized here. */
 #ooc-chat-input {
     flex: 1 1 auto;
     box-sizing: border-box;
@@ -42,12 +62,15 @@
     border-radius: 7px;
     font: inherit;
     line-height: 1.35;
+    color: var(--SmartThemeBodyColor);
 }
 
 #ooc-chat-input::placeholder {
-    opacity: 0.65;
+    color: var(--SmartThemeEmColor);
+    opacity: 0.8;
 }
 
+/* menu_button supplies the active ST button theme. */
 #ooc-chat-send {
     flex: 0 0 34px;
     width: 34px;
@@ -58,6 +81,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 7px;
+    color: var(--SmartThemeBodyColor);
 }
 
 #ooc-chat-send.ooc-chat-sending i {
@@ -92,7 +116,8 @@
 }
 
 #ooc-chat-settings small {
-    opacity: 0.7;
+    color: var(--SmartThemeEmColor);
+    opacity: 0.9;
     line-height: 1.35;
 }
 
@@ -113,15 +138,15 @@
     width: 40px;
     height: 30px;
     padding: 0;
-    border: none;
-    background: transparent;
+    border: 1px solid var(--SmartThemeBorderColor);
+    background: var(--SmartThemeBlurTintColor);
     cursor: pointer;
 }
 
 #ooc-chat-settings #ooc-chat-color-value {
-    font-family: monospace;
+    font-family: var(--monoFontFamily);
     font-size: 0.82em;
-    opacity: 0.8;
+    color: var(--SmartThemeEmColor);
 }
 
 @keyframes ooc-chat-spin {
