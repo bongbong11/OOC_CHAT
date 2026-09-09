@@ -1,8 +1,8 @@
 {
   "display_name": "OOC Chat",
   "name": "OOC_CHAT",
-  "version": "1.3.0",
-  "description": "Adds a dedicated configurable OOC-only input bar above the normal SillyTavern chat input.",
+  "version": "1.4.0",
+  "description": "Adds a configurable OOC input bar with per-preset prompt exclusions for SillyTavern.",
   "js": "index.js",
   "css": "style.css",
   "author": "bongbong11",
