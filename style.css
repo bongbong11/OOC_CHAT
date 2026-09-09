@@ -188,6 +188,18 @@ body.no-blur #ooc-chat-prompt-popover {
     border-bottom: 1px solid var(--SmartThemeBorderColor);
 }
 
+.ooc-chat-popover-heading {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.ooc-chat-popover-actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+}
+
 .ooc-chat-popover-title {
     font-weight: 700;
     line-height: 1.25;
@@ -199,6 +211,19 @@ body.no-blur #ooc-chat-prompt-popover {
     font-size: 0.78em;
     line-height: 1.25;
     overflow-wrap: anywhere;
+}
+
+.ooc-chat-prompt-clear {
+    min-width: 0;
+    height: 26px;
+    padding: 2px 7px;
+    font-size: 0.72em;
+    white-space: nowrap;
+}
+
+.ooc-chat-prompt-clear:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
 
 .ooc-chat-popover-close {
@@ -357,5 +382,10 @@ body.no-blur #ooc-chat-prompt-popover {
 
     .ooc-chat-prompt-list {
         max-height: min(350px, 55vh);
+    }
+
+    .ooc-chat-prompt-clear {
+        padding-inline: 6px;
+        font-size: 0.68em;
     }
 }
