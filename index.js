@@ -1,4 +1,4 @@
-// OOC Chat v1.4.0
+// OOC Chat v1.4.1
 // Dedicated OOC input bar for SillyTavern.
 
 import { extension_settings, getContext } from '../../../extensions.js';
@@ -14,6 +14,7 @@ const SEND_ID = 'ooc-chat-send';
 const COLLAPSE_ID = 'ooc-chat-collapse';
 const SETTINGS_ID = 'ooc-chat-settings';
 const POPOVER_ID = 'ooc-chat-prompt-popover';
+const CLEAR_ID = 'ooc-chat-prompt-clear';
 
 const defaultSettings = {
     instruction: 'Answer in English.',
@@ -133,7 +134,6 @@ function buildOocMessageText(text, instruction = getInstruction()) {
 function getOocDisplayText(message) {
     if (!message?.extra?.ooc_chat) return null;
 
-    // Compatibility with v1.1-v1.2 messages, which stored the display text directly.
     if (typeof message.extra.ooc_display_text === 'string') {
         return message.extra.ooc_display_text;
     }
@@ -225,6 +225,14 @@ function setPromptExcluded(presetName, identifier, excluded) {
     saveSettings();
 }
 
+function clearPromptExclusions(presetName = getCurrentPresetName()) {
+    const key = getPresetStorageKey(presetName);
+    delete settings.promptExclusions[key];
+    saveSettings();
+    renderPromptPopover();
+    requestAnimationFrame(positionPromptPopover);
+}
+
 function getCurrentPresetPromptEntries() {
     if (!promptManager || typeof promptManager.getPromptOrderForCharacter !== 'function' || typeof promptManager.getPromptById !== 'function') {
         return null;
@@ -261,13 +269,16 @@ function ensurePromptPopover() {
     popover.hidden = true;
     popover.innerHTML = `
         <div class="ooc-chat-popover-header">
-            <div>
+            <div class="ooc-chat-popover-heading">
                 <div class="ooc-chat-popover-title">OOC 프롬프트 제외</div>
                 <div id="ooc-chat-popover-preset" class="ooc-chat-popover-preset"></div>
             </div>
-            <button id="ooc-chat-popover-close" class="menu_button ooc-chat-popover-close" type="button" title="닫기" aria-label="닫기">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
+            <div class="ooc-chat-popover-actions">
+                <button id="${CLEAR_ID}" class="menu_button ooc-chat-prompt-clear" type="button" title="현재 프리셋 체크 모두 해제">전체 해제</button>
+                <button id="ooc-chat-popover-close" class="menu_button ooc-chat-popover-close" type="button" title="닫기" aria-label="닫기">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
         </div>
         <div id="ooc-chat-prompt-list" class="ooc-chat-prompt-list"></div>
         <div class="ooc-chat-popover-note">체크한 프롬프트는 이 프리셋에서 OOC로 보낼 때만 제외돼. 선택은 즉시 저장돼.</div>
@@ -275,6 +286,7 @@ function ensurePromptPopover() {
 
     document.body.appendChild(popover);
     popover.querySelector('#ooc-chat-popover-close')?.addEventListener('click', closePromptPopover);
+    popover.querySelector(`#${CLEAR_ID}`)?.addEventListener('click', () => clearPromptExclusions());
     return popover;
 }
 
@@ -283,12 +295,16 @@ function renderPromptPopover() {
     const presetName = getCurrentPresetName();
     const presetElement = popover.querySelector('#ooc-chat-popover-preset');
     const listElement = popover.querySelector('#ooc-chat-prompt-list');
+    const clearButton = popover.querySelector(`#${CLEAR_ID}`);
     if (!presetElement || !listElement) return;
 
     presetElement.textContent = `현재 프리셋: ${presetName}`;
     listElement.replaceChildren();
 
     const entries = getCurrentPresetPromptEntries();
+    const selected = new Set(getExcludedPromptIds(presetName));
+    if (clearButton) clearButton.disabled = selected.size === 0;
+
     if (entries === null) {
         const message = document.createElement('div');
         message.className = 'ooc-chat-prompt-empty';
@@ -305,8 +321,6 @@ function renderPromptPopover() {
         return;
     }
 
-    const selected = new Set(getExcludedPromptIds(presetName));
-
     for (const entry of entries) {
         const label = document.createElement('label');
         label.className = 'ooc-chat-prompt-item';
@@ -317,6 +331,8 @@ function renderPromptPopover() {
         checkbox.dataset.promptIdentifier = entry.identifier;
         checkbox.addEventListener('change', () => {
             setPromptExcluded(presetName, entry.identifier, checkbox.checked);
+            const currentSelected = getExcludedPromptIds(presetName);
+            if (clearButton) clearButton.disabled = currentSelected.length === 0;
         });
 
         const text = document.createElement('span');
@@ -461,7 +477,9 @@ async function sendOocMessage() {
         resizeInput(input);
         context.scrollChatToBottom?.();
 
-        await context.executeSlashCommandsWithOptions('/trigger', {
+        // /trigger normally returns before Generate() runs. await=true keeps the
+        // selected prompts disabled through prompt assembly and the generation.
+        await context.executeSlashCommandsWithOptions('/trigger await=true', {
             handleParserErrors: true,
             handleExecutionErrors: true,
         });
@@ -716,7 +734,7 @@ async function initOocChat() {
     ensureUi();
     scheduleUiBootstrap();
     scheduleVisibleDecoration();
-    console.log('[OOC Chat] v1.4.0 loaded');
+    console.log('[OOC Chat] v1.4.1 loaded');
 }
 
 export async function init() {
