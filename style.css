@@ -155,8 +155,8 @@ body.no-blur #ooc-chat-container {
     position: fixed;
     z-index: 10050;
     box-sizing: border-box;
-    width: min(360px, calc(100vw - 16px));
-    max-height: min(520px, calc(100vh - 16px));
+    width: min(380px, calc(100vw - 16px));
+    max-height: min(560px, calc(100vh - 16px));
     padding: 10px;
     overflow: hidden;
 
@@ -169,7 +169,8 @@ body.no-blur #ooc-chat-container {
     -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength));
 }
 
-#ooc-chat-prompt-popover[hidden] {
+#ooc-chat-prompt-popover[hidden],
+#ooc-chat-prompt-popover [hidden] {
     display: none !important;
 }
 
@@ -185,7 +186,6 @@ body.no-blur #ooc-chat-prompt-popover {
     justify-content: space-between;
     gap: 8px;
     padding-bottom: 8px;
-    border-bottom: 1px solid var(--SmartThemeBorderColor);
 }
 
 .ooc-chat-popover-heading {
@@ -232,6 +232,44 @@ body.no-blur #ooc-chat-prompt-popover {
     height: 28px;
     min-width: 28px;
     padding: 0;
+}
+
+.ooc-chat-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 7px 0;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+
+.ooc-chat-tab {
+    appearance: none;
+    -webkit-appearance: none;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: var(--SmartThemeEmColor);
+    background: transparent;
+    font: inherit;
+    font-size: 0.78em;
+    cursor: pointer;
+}
+
+.ooc-chat-tab:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 6%, transparent);
+}
+
+.ooc-chat-tab.active {
+    color: var(--SmartThemeBodyColor);
+    border-color: var(--SmartThemeBorderColor);
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 9%, transparent);
+    font-weight: 700;
+}
+
+.ooc-chat-popover-body {
+    min-height: 0;
 }
 
 .ooc-chat-prompt-list {
@@ -284,6 +322,49 @@ body.no-blur #ooc-chat-prompt-popover {
     color: var(--SmartThemeEmColor);
     text-align: center;
     line-height: 1.4;
+}
+
+.ooc-chat-persona-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding-top: 8px;
+}
+
+.ooc-chat-persona-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 210px;
+    max-height: 360px;
+    resize: vertical;
+    overflow-y: auto;
+    line-height: 1.35;
+}
+
+.ooc-chat-persona-status {
+    min-height: 1.2em;
+    color: var(--SmartThemeEmColor);
+    font-size: 0.74em;
+    line-height: 1.3;
+}
+
+.ooc-chat-persona-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.ooc-chat-persona-actions .menu_button {
+    min-width: 58px;
+}
+
+.ooc-chat-persona-delete {
+    opacity: 0.9;
+}
+
+.ooc-chat-persona-delete:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
 
 .ooc-chat-popover-note {
@@ -376,12 +457,17 @@ body.no-blur #ooc-chat-prompt-popover {
     }
 
     #ooc-chat-prompt-popover {
-        width: min(340px, calc(100vw - 12px));
+        width: min(360px, calc(100vw - 12px));
         max-height: calc(100vh - 12px);
     }
 
     .ooc-chat-prompt-list {
         max-height: min(350px, 55vh);
+    }
+
+    .ooc-chat-persona-input {
+        min-height: 190px;
+        max-height: 48vh;
     }
 
     .ooc-chat-prompt-clear {
