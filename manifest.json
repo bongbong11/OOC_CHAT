@@ -1,8 +1,8 @@
 {
   "display_name": "OOC Chat",
   "name": "OOC_CHAT",
-  "version": "1.4.1",
-  "description": "Adds a configurable OOC input bar with per-preset prompt exclusions for SillyTavern.",
+  "version": "1.5.0",
+  "description": "Adds a configurable OOC input bar with per-preset prompt exclusions and a global OOC persona prompt for SillyTavern.",
   "js": "index.js",
   "css": "style.css",
   "author": "bongbong11",
