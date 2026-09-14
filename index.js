@@ -1,9 +1,13 @@
-// OOC Chat v1.4.1
+// OOC Chat v1.5.0
 // Dedicated OOC input bar for SillyTavern.
 
 import { extension_settings, getContext } from '../../../extensions.js';
 import { oai_settings, promptManager } from '../../../openai.js';
-import { saveSettingsDebounced } from '../../../../script.js';
+import {
+    extension_prompt_roles,
+    extension_prompt_types,
+    saveSettingsDebounced,
+} from '../../../../script.js';
 
 const EXT_NAME = 'OOC_CHAT';
 const CONTAINER_ID = 'ooc-chat-container';
@@ -15,6 +19,8 @@ const COLLAPSE_ID = 'ooc-chat-collapse';
 const SETTINGS_ID = 'ooc-chat-settings';
 const POPOVER_ID = 'ooc-chat-prompt-popover';
 const CLEAR_ID = 'ooc-chat-prompt-clear';
+const PERSONA_STORAGE_KEY = 'OOC_CHAT_PERSONA_PROMPT';
+const PERSONA_PROMPT_KEY = 'OOC_CHAT_RUNTIME_PERSONA';
 
 const defaultSettings = {
     instruction: 'Answer in English.',
@@ -29,6 +35,7 @@ let eventsBound = false;
 let documentHandlersBound = false;
 let initialized = false;
 let barCollapsed = false;
+let activePopoverTab = 'exclusions';
 
 function loadSettings() {
     if (!extension_settings[EXT_NAME]) {
@@ -260,6 +267,28 @@ function getCurrentPresetPromptEntries() {
     }
 }
 
+function getPersonaPrompt() {
+    const context = getContext();
+    return String(context?.accountStorage?.getItem(PERSONA_STORAGE_KEY) ?? '');
+}
+
+function savePersonaPrompt(value) {
+    const context = getContext();
+    const storage = context?.accountStorage;
+    if (!storage) throw new Error('AccountStorage를 사용할 수 없어.');
+
+    const text = String(value ?? '').trim();
+    if (text) storage.setItem(PERSONA_STORAGE_KEY, text);
+    else storage.removeItem(PERSONA_STORAGE_KEY);
+}
+
+function deletePersonaPrompt() {
+    const context = getContext();
+    const storage = context?.accountStorage;
+    if (!storage) throw new Error('AccountStorage를 사용할 수 없어.');
+    storage.removeItem(PERSONA_STORAGE_KEY);
+}
+
 function ensurePromptPopover() {
     let popover = document.getElementById(POPOVER_ID);
     if (popover) return popover;
@@ -270,7 +299,7 @@ function ensurePromptPopover() {
     popover.innerHTML = `
         <div class="ooc-chat-popover-header">
             <div class="ooc-chat-popover-heading">
-                <div class="ooc-chat-popover-title">OOC 프롬프트 제외</div>
+                <div class="ooc-chat-popover-title">OOC 설정</div>
                 <div id="ooc-chat-popover-preset" class="ooc-chat-popover-preset"></div>
             </div>
             <div class="ooc-chat-popover-actions">
@@ -280,13 +309,23 @@ function ensurePromptPopover() {
                 </button>
             </div>
         </div>
-        <div id="ooc-chat-prompt-list" class="ooc-chat-prompt-list"></div>
-        <div class="ooc-chat-popover-note">체크한 프롬프트는 이 프리셋에서 OOC로 보낼 때만 제외돼. 선택은 즉시 저장돼.</div>
+        <div class="ooc-chat-tabs" role="tablist">
+            <button class="ooc-chat-tab" type="button" data-ooc-tab="exclusions" role="tab">프롬프트 제외</button>
+            <button class="ooc-chat-tab" type="button" data-ooc-tab="persona" role="tab">OOC 프롬프트</button>
+        </div>
+        <div id="ooc-chat-popover-body" class="ooc-chat-popover-body"></div>
     `;
 
     document.body.appendChild(popover);
     popover.querySelector('#ooc-chat-popover-close')?.addEventListener('click', closePromptPopover);
     popover.querySelector(`#${CLEAR_ID}`)?.addEventListener('click', () => clearPromptExclusions());
+    popover.querySelectorAll('[data-ooc-tab]').forEach((button) => {
+        button.addEventListener('click', () => {
+            activePopoverTab = button.dataset.oocTab === 'persona' ? 'persona' : 'exclusions';
+            renderPromptPopover();
+            requestAnimationFrame(positionPromptPopover);
+        });
+    });
     return popover;
 }
 
@@ -294,13 +333,32 @@ function renderPromptPopover() {
     const popover = ensurePromptPopover();
     const presetName = getCurrentPresetName();
     const presetElement = popover.querySelector('#ooc-chat-popover-preset');
-    const listElement = popover.querySelector('#ooc-chat-prompt-list');
+    const bodyElement = popover.querySelector('#ooc-chat-popover-body');
     const clearButton = popover.querySelector(`#${CLEAR_ID}`);
-    if (!presetElement || !listElement) return;
+    if (!presetElement || !bodyElement) return;
 
-    presetElement.textContent = `현재 프리셋: ${presetName}`;
-    listElement.replaceChildren();
+    popover.querySelectorAll('[data-ooc-tab]').forEach((button) => {
+        const selected = button.dataset.oocTab === activePopoverTab;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-selected', String(selected));
+    });
 
+    if (activePopoverTab === 'persona') {
+        presetElement.textContent = '모든 프리셋 공통 · AccountStorage';
+        if (clearButton) clearButton.hidden = true;
+        renderPersonaTab(bodyElement);
+    } else {
+        presetElement.textContent = `현재 프리셋: ${presetName}`;
+        if (clearButton) clearButton.hidden = false;
+        renderExclusionsTab(bodyElement, presetName, clearButton);
+    }
+}
+
+function renderExclusionsTab(bodyElement, presetName, clearButton) {
+    bodyElement.replaceChildren();
+
+    const listElement = document.createElement('div');
+    listElement.className = 'ooc-chat-prompt-list';
     const entries = getCurrentPresetPromptEntries();
     const selected = new Set(getExcludedPromptIds(presetName));
     if (clearButton) clearButton.disabled = selected.size === 0;
@@ -310,50 +368,120 @@ function renderPromptPopover() {
         message.className = 'ooc-chat-prompt-empty';
         message.textContent = 'Prompt Manager를 아직 읽을 수 없어. 잠시 후 다시 열어줘.';
         listElement.appendChild(message);
-        return;
-    }
-
-    if (entries.length === 0) {
+    } else if (entries.length === 0) {
         const message = document.createElement('div');
         message.className = 'ooc-chat-prompt-empty';
         message.textContent = '현재 프리셋에서 선택할 수 있는 프롬프트가 없어.';
         listElement.appendChild(message);
-        return;
+    } else {
+        for (const entry of entries) {
+            const label = document.createElement('label');
+            label.className = 'ooc-chat-prompt-item';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selected.has(entry.identifier);
+            checkbox.dataset.promptIdentifier = entry.identifier;
+            checkbox.addEventListener('change', () => {
+                setPromptExcluded(presetName, entry.identifier, checkbox.checked);
+                if (clearButton) clearButton.disabled = getExcludedPromptIds(presetName).length === 0;
+            });
+
+            const text = document.createElement('span');
+            text.className = 'ooc-chat-prompt-item-text';
+
+            const name = document.createElement('span');
+            name.className = 'ooc-chat-prompt-name';
+            name.textContent = entry.name;
+
+            const meta = document.createElement('span');
+            meta.className = 'ooc-chat-prompt-meta';
+            const metaParts = [];
+            if (entry.role) metaParts.push(entry.role);
+            if (!entry.enabled) metaParts.push('현재 OFF');
+            meta.textContent = metaParts.join(' · ');
+
+            text.appendChild(name);
+            if (meta.textContent) text.appendChild(meta);
+            label.append(checkbox, text);
+            listElement.appendChild(label);
+        }
     }
 
-    for (const entry of entries) {
-        const label = document.createElement('label');
-        label.className = 'ooc-chat-prompt-item';
+    const note = document.createElement('div');
+    note.className = 'ooc-chat-popover-note';
+    note.textContent = '체크한 프롬프트는 이 프리셋에서 OOC로 보낼 때만 제외돼. 선택은 즉시 저장돼.';
+    bodyElement.append(listElement, note);
+}
 
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = selected.has(entry.identifier);
-        checkbox.dataset.promptIdentifier = entry.identifier;
-        checkbox.addEventListener('change', () => {
-            setPromptExcluded(presetName, entry.identifier, checkbox.checked);
-            const currentSelected = getExcludedPromptIds(presetName);
-            if (clearButton) clearButton.disabled = currentSelected.length === 0;
-        });
+function renderPersonaTab(bodyElement) {
+    bodyElement.replaceChildren();
 
-        const text = document.createElement('span');
-        text.className = 'ooc-chat-prompt-item-text';
+    const wrap = document.createElement('div');
+    wrap.className = 'ooc-chat-persona-pane';
 
-        const name = document.createElement('span');
-        name.className = 'ooc-chat-prompt-name';
-        name.textContent = entry.name;
+    const textarea = document.createElement('textarea');
+    textarea.id = 'ooc-chat-persona-input';
+    textarea.className = 'text_pole ooc-chat-persona-input';
+    textarea.rows = 10;
+    textarea.placeholder = 'OOC에서만 사용할 인격/작동 프롬프트를 입력해. 비워두면 추가 프롬프트를 주입하지 않아.';
+    textarea.value = getPersonaPrompt();
 
-        const meta = document.createElement('span');
-        meta.className = 'ooc-chat-prompt-meta';
-        const metaParts = [];
-        if (entry.role) metaParts.push(entry.role);
-        if (!entry.enabled) metaParts.push('현재 OFF');
-        meta.textContent = metaParts.join(' · ');
+    const status = document.createElement('div');
+    status.className = 'ooc-chat-persona-status';
+    status.textContent = textarea.value ? '저장된 OOC 프롬프트가 있어.' : '저장된 OOC 프롬프트가 없어.';
 
-        text.appendChild(name);
-        if (meta.textContent) text.appendChild(meta);
-        label.append(checkbox, text);
-        listElement.appendChild(label);
-    }
+    const actions = document.createElement('div');
+    actions.className = 'ooc-chat-persona-actions';
+
+    const saveButton = document.createElement('button');
+    saveButton.className = 'menu_button';
+    saveButton.type = 'button';
+    saveButton.textContent = '저장';
+
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'menu_button ooc-chat-persona-delete';
+    deleteButton.type = 'button';
+    deleteButton.textContent = '삭제';
+    deleteButton.disabled = !textarea.value;
+
+    saveButton.addEventListener('click', () => {
+        try {
+            savePersonaPrompt(textarea.value);
+            textarea.value = getPersonaPrompt();
+            const exists = Boolean(textarea.value);
+            status.textContent = exists ? '저장됨.' : '비어 있어서 저장 항목을 삭제했어.';
+            deleteButton.disabled = !exists;
+        } catch (error) {
+            console.error('[OOC Chat] Failed to save persona prompt:', error);
+            toast(`OOC 프롬프트 저장 오류: ${error?.message || error}`, 'error');
+        }
+    });
+
+    deleteButton.addEventListener('click', () => {
+        try {
+            deletePersonaPrompt();
+            textarea.value = '';
+            status.textContent = '삭제됨.';
+            deleteButton.disabled = true;
+        } catch (error) {
+            console.error('[OOC Chat] Failed to delete persona prompt:', error);
+            toast(`OOC 프롬프트 삭제 오류: ${error?.message || error}`, 'error');
+        }
+    });
+
+    textarea.addEventListener('input', () => {
+        status.textContent = '저장되지 않은 변경사항이 있어.';
+    });
+
+    actions.append(saveButton, deleteButton);
+
+    const note = document.createElement('div');
+    note.className = 'ooc-chat-popover-note';
+    note.textContent = '이 프롬프트는 프리셋과 별도로 계정 저장소에 보관되고, OOC 전송 때만 system 프롬프트로 임시 주입돼. 빈 상태로 저장하거나 삭제를 누르면 저장 키 자체가 제거돼.';
+
+    wrap.append(textarea, status, actions, note);
+    bodyElement.appendChild(wrap);
 }
 
 function positionPromptPopover() {
@@ -420,6 +548,34 @@ function applyPromptExclusionsForCurrentGeneration() {
     };
 }
 
+function applyPersonaForCurrentGeneration(context) {
+    const persona = String(context?.accountStorage?.getItem(PERSONA_STORAGE_KEY) ?? '').trim();
+    if (!persona) return () => {};
+    if (typeof context?.setExtensionPrompt !== 'function') {
+        throw new Error('OOC 프롬프트 주입 기능을 사용할 수 없어.');
+    }
+
+    context.setExtensionPrompt(
+        PERSONA_PROMPT_KEY,
+        persona,
+        extension_prompt_types.IN_PROMPT,
+        0,
+        false,
+        extension_prompt_roles.SYSTEM,
+    );
+
+    return () => {
+        context.setExtensionPrompt(
+            PERSONA_PROMPT_KEY,
+            '',
+            extension_prompt_types.NONE,
+            0,
+            false,
+            extension_prompt_roles.SYSTEM,
+        );
+    };
+}
+
 async function sendOocMessage() {
     if (sending) return;
 
@@ -459,9 +615,11 @@ async function sendOocMessage() {
     closePromptPopover();
 
     let restorePromptStates = () => {};
+    let restorePersonaPrompt = () => {};
 
     try {
         restorePromptStates = applyPromptExclusionsForCurrentGeneration();
+        restorePersonaPrompt = applyPersonaForCurrentGeneration(context);
 
         context.chat.push(message);
         const messageId = context.chat.length - 1;
@@ -477,8 +635,8 @@ async function sendOocMessage() {
         resizeInput(input);
         context.scrollChatToBottom?.();
 
-        // /trigger normally returns before Generate() runs. await=true keeps the
-        // selected prompts disabled through prompt assembly and the generation.
+        // await=true keeps temporary exclusions and the OOC persona active
+        // through prompt assembly and generation. finally always restores them.
         await context.executeSlashCommandsWithOptions('/trigger await=true', {
             handleParserErrors: true,
             handleExecutionErrors: true,
@@ -487,7 +645,11 @@ async function sendOocMessage() {
         console.error('[OOC Chat] Failed to send OOC message:', error);
         toast(`OOC 전송 오류: ${error?.message || error}`, 'error');
     } finally {
-        restorePromptStates();
+        try {
+            restorePersonaPrompt();
+        } finally {
+            restorePromptStates();
+        }
         setSendingState(false);
         if (!barCollapsed && settings.showInput) input.focus();
     }
@@ -498,7 +660,7 @@ function buildBar() {
     container.id = CONTAINER_ID;
     container.innerHTML = `
         <div id="${ROW_ID}" class="ooc-chat-row">
-            <button id="${LABEL_ID}" class="ooc-chat-label" type="button" title="OOC 프롬프트 제외 설정" aria-label="OOC 프롬프트 제외 설정">OOC</button>
+            <button id="${LABEL_ID}" class="ooc-chat-label" type="button" title="OOC 설정" aria-label="OOC 설정">OOC</button>
             <textarea
                 id="${INPUT_ID}"
                 class="text_pole"
@@ -584,7 +746,7 @@ function injectSettingsPanel() {
                     <span id="ooc-chat-color-value"></span>
                 </div>
 
-                <small>입력창 왼쪽의 OOC 버튼을 누르면 현재 프리셋의 OOC 제외 프롬프트를 선택할 수 있어.</small>
+                <small>입력창 왼쪽 OOC 버튼에서 프리셋별 제외 프롬프트와 공통 OOC 프롬프트를 설정할 수 있어.</small>
                 <button id="ooc-chat-settings-save" class="menu_button" type="button">저장</button>
             </div>
         </div>
@@ -734,7 +896,7 @@ async function initOocChat() {
     ensureUi();
     scheduleUiBootstrap();
     scheduleVisibleDecoration();
-    console.log('[OOC Chat] v1.4.1 loaded');
+    console.log('[OOC Chat] v1.5.0 loaded');
 }
 
 export async function init() {
