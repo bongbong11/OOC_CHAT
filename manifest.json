@@ -1,7 +1,7 @@
 {
   "display_name": "OOC Chat",
   "name": "OOC_CHAT",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Adds a configurable OOC input bar with per-preset prompt exclusions and a global OOC persona prompt injected into the latest OOC user input.",
   "js": "index.js",
   "css": "style.css",
