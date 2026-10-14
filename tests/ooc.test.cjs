@@ -9,13 +9,14 @@ const source = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8')
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const LEGACY = 'OOC_CHAT_PERSONA_PROMPT', PRESETS = 'OOC_CHAT_PERSONA_PRESETS';
 
-function setup({ text = '설명해 줘', storage = new Map(), translator = true } = {}) {
+function setup({ text = '설명해 줘', storage = new Map(), translator = true, translationEnabled=true, savedSettings=null } = {}) {
     const input = { value: text, disabled: false, style: {}, focus() {}, scrollHeight: 32 };
     const button = { disabled: false, classList: { toggle() {} }, setAttribute() {} };
     const listeners = {}, requests = [], saves = [], rendered = [], prompts = [], toasts = [];
     const entries = { a: { enabled: true }, b: { enabled: false } };
     let chatId = 'first', failStorage = false, failSave = false, saveHook, generateHook, copyHook;
-    const extension_settings = { OOC_CHAT: { instruction: 'Answer in English.', promptExclusions: { Default: ['a', 'b'] } } };
+    const extension_settings = { OOC_CHAT: savedSettings??{ instruction: 'Answer in English.', promptExclusions: { Default: ['a', 'b'] } } };
+    if(!savedSettings&&translationEnabled!==null)extension_settings.OOC_CHAT.translateInput=translationEnabled;
     const context = {
         chat: [], characterId: 0, groupId: null, name1: 'Tester',
         accountStorage: {
@@ -54,9 +55,10 @@ function setup({ text = '설명해 줘', storage = new Map(), translator = true 
     };
     if (translator) sandbox.window.inputTranslator = { version: 1, translate: (text, options) => new Promise((resolve, reject) => requests.push({ text, options, resolve, reject })) };
     vm.createContext(sandbox);
-    vm.runInContext(source + '\nthis.api={sendOocMessage,getPersonaStore,getPersonaPrompt,selectPersonaPrompt,savePersonaPrompt,deletePersonaPrompt,getOocDisplayText,buildOocGenerationText}; loadSettings(); ensureOocBar=()=>{};scheduleVisibleDecoration=()=>{};decorateOocMessage=()=>{};bindEvents();', sandbox);
+    vm.runInContext(source + '\nthis.api={sendOocMessage,getPersonaStore,getPersonaPrompt,selectPersonaPrompt,savePersonaPrompt,deletePersonaPrompt,getOocDisplayText,buildOocGenerationText,setTranslationEnabled}; loadSettings(); ensureOocBar=()=>{};scheduleVisibleDecoration=()=>{};decorateOocMessage=()=>{};bindEvents();', sandbox);
     return {
         ...sandbox.api, input, requests, context, saves, rendered, prompts, entries, storage, toasts, sandbox,
+        settings:extension_settings.OOC_CHAT,
         reply: value => requests.at(-1).resolve(value),
         changeChat: async (id = 'second', replace = true) => { chatId = id; if (replace) context.chat = []; await context.eventSource.emit('changed'); },
         edit: value => { input.value = value; vm.runInContext('inputRevision+=1;', sandbox); },
@@ -238,4 +240,40 @@ test('missing request identity in the model copy fails safely instead of using a
     const s=setup({text:'Explain.'});s.onModelCopy(copy=>copy.map(message=>({...message,extra:{ooc_chat:true}})));
     await s.sendOocMessage();assert.equal(s.prompts.length,0);assert.equal(s.context.chat[0].mes,'(OOC: Answer in English. Explain.)');
     assert.equal(s.entries.a.enabled,true);assert.equal(s.input.disabled,false);
+});
+
+test('missing integration setting defaults to original Korean sending without a translation extension', async () => {
+    const s=setup({translator:false,translationEnabled:null,storage:new Map([[LEGACY,'Persona']])});
+    assert.equal(s.settings.translateInput,false);await s.sendOocMessage();
+    assert.equal(s.getOocDisplayText(s.context.chat[0]),'설명해 줘');assert.equal(s.prompts.length,1);
+    assert.equal(s.prompts[0][0].mes,s.buildOocGenerationText('설명해 줘','Answer in English.','Persona'));
+    assert.equal(s.entries.a.enabled,true);assert.equal(s.input.value,'');
+});
+
+test('integration OFF sends original even if a translation extension is installed', async () => {
+    const s=setup({translationEnabled:false});await s.sendOocMessage();
+    assert.equal(s.requests.length,0);assert.equal(s.getOocDisplayText(s.context.chat[0]),'설명해 줘');
+    assert.equal(s.prompts[0][0].mes,s.context.chat[0].mes);
+});
+
+test('switching integration OFF then ON cancels a pending translation; a deliberate OFF retry sends original once', async () => {
+    const s=setup();const pending=s.sendOocMessage();s.setTranslationEnabled(false);
+    assert.equal(s.requests[0].options.signal.aborted,true);s.setTranslationEnabled(true);s.reply('Late translation');await pending;
+    assert.equal(s.context.chat.length,0);assert.equal(s.input.value,'설명해 줘');assert.equal(s.input.disabled,false);
+    s.setTranslationEnabled(false);await s.sendOocMessage();assert.equal(s.context.chat.length,1);assert.equal(s.getOocDisplayText(s.context.chat[0]),'설명해 줘');
+    assert.equal(s.requests.length,1);
+});
+
+test('integration changes after sending affect the next request without aborting current model generation', async () => {
+    const s=setup();s.onGenerate(()=>s.setTranslationEnabled(false));const pending=s.sendOocMessage();s.reply('Explain.');await pending;
+    assert.equal(s.prompts.length,1);assert.equal(s.requests[0].options.signal.aborted,false);
+    s.input.value='다음 질문';await s.sendOocMessage();assert.equal(s.requests.length,1);assert.equal(s.prompts.length,2);
+    assert.equal(s.getOocDisplayText(s.context.chat[1]),'다음 질문');
+});
+
+test('integration choice restores from settings and invalid legacy values default OFF', () => {
+    const s=setup({translationEnabled:null});s.setTranslationEnabled(true);
+    const restored=setup({savedSettings:JSON.parse(JSON.stringify(s.settings))});assert.equal(restored.settings.translateInput,true);
+    restored.setTranslationEnabled(false);assert.equal(setup({savedSettings:JSON.parse(JSON.stringify(restored.settings))}).settings.translateInput,false);
+    assert.equal(setup({translationEnabled:'true'}).settings.translateInput,false);
 });

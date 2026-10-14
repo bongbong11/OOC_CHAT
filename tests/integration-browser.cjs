@@ -7,7 +7,7 @@ const oocRoot = path.resolve(__dirname, '..');
 const translatorRoot = path.resolve(process.argv[2] || path.join(oocRoot, '../in_tr'));
 const screenshotDir = process.env.SCREENSHOT_DIR;
 const modules = {
-    '/script.js': `export const getCurrentChatId=()=>harness.chatId;export let is_send_press=false;export const saveSettingsDebounced=()=>{};export const substituteParams=t=>t;export const sendTextareaMessage=async()=>{harness.normalSends.push(document.querySelector('#send_textarea').value);document.querySelector('#send_textarea').value='';};`,
+    '/script.js': `export const getCurrentChatId=()=>harness.chatId;export let is_send_press=false;export const saveSettingsDebounced=()=>harness.persistSettings();export const substituteParams=t=>t;export const sendTextareaMessage=async()=>{harness.normalSends.push(document.querySelector('#send_textarea').value);document.querySelector('#send_textarea').value='';};`,
     '/scripts/extensions.js': `export const extension_settings=harness.ctx.extensionSettings;export const getContext=()=>harness.ctx;`,
     '/scripts/openai.js': `export const oai_settings={preset_settings_openai:'Default'};export const promptManager={activeCharacter:0,getPromptOrderEntry:(_,id)=>harness.entries[id],getPromptOrderForCharacter:()=>[{identifier:'a',enabled:true},{identifier:'b',enabled:false}],getPromptById:id=>({name:id,role:'system'})};`,
     '/scripts/RossAscends-mods.js': `export const shouldSendOnEnter=()=>true;`,
@@ -22,6 +22,8 @@ window.harness={chatId:'one',requests:[],normalSends:[],saves:[],prompts:[],toas
 const listeners={};
 harness.ctx={chat:[],characterId:0,groupId:null,name1:'Test',CONNECT_API_MAP:{openai:{selected:'openai'}},extensionSettings:{inputTranslator:{profileId:'profile',contextTurns:0,maxTranslationTokens:6144,autoTranslateOnSend:true},OOC_CHAT:{instruction:'Answer in English.',promptExclusions:{Default:['a']}}},accountStorage:localStorage,saveSettingsDebounced(){},eventTypes:{CHAT_CHANGED:'changed',MESSAGE_SENT:'sent',USER_MESSAGE_RENDERED:'rendered'},eventSource:{on:(type,fn)=>(listeners[type]??=[]).push(fn),emit:async(type,id)=>{for(const fn of listeners[type]??[])await fn(id);}},saveChat:async()=>{harness.saves.push(JSON.parse(JSON.stringify(harness.ctx.chat)));localStorage.setItem('test-chat',JSON.stringify(harness.ctx.chat));},addOneMessage:message=>{const id=harness.ctx.chat.indexOf(message);const node=document.createElement('div');node.className='mes';node.setAttribute('mesid',id);const text=document.createElement('div');text.className='mes_text';text.textContent=message.mes;node.append(text);document.querySelector('#chat').append(node);},executeSlashCommandsWithOptions:async()=>{const copy=harness.ctx.chat.filter(m=>!m.is_system).map((m,index)=>({...m,index}));let abort=false;window.oocChatGenerationInterceptor(copy,4096,()=>{abort=true;});if(!abort){harness.prompts.push(copy);await harness.ctx.saveChat();}},scrollChatToBottom(){}};
 window.SillyTavern={getContext:()=>harness.ctx};window.toastr={error:m=>harness.toasts.push(m),warning:m=>harness.toasts.push(m),success(){},info(){}};
+const savedSettings=JSON.parse(localStorage.getItem('test-settings')||'null');if(savedSettings)harness.ctx.extensionSettings=savedSettings;
+harness.persistSettings=()=>localStorage.setItem('test-settings',JSON.stringify(harness.ctx.extensionSettings));
 if(!localStorage.getItem('seeded')){localStorage.setItem('OOC_CHAT_PERSONA_PROMPT','Legacy persona.');localStorage.setItem('seeded','1');}
 </script><script type="module">await import('/scripts/extensions/third-party/OOC_CHAT/index.js');await import('/scripts/extensions/third-party/in_tr/entry.js');window.ready=true;</script>`;
 
@@ -41,7 +43,9 @@ if(!localStorage.getItem('seeded')){localStorage.setItem('OOC_CHAT_PERSONA_PROMP
         browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrome', headless: true });
         const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
         const errors = []; page.on('pageerror', e => { errors.push(e.message); console.error('PAGE:', e.message); });
+        async function integrationChecked(value){await page.evaluate(()=>document.querySelector('#ooc-chat-settings .inline-drawer-content').style.display='block');await page.locator('#ooc-chat-translate-input').setChecked(value);}
         await page.goto(`http://127.0.0.1:${server.address().port}/`); await page.waitForFunction(() => window.ready);
+        assert.equal(await page.locator('#ooc-chat-translate-input').isChecked(),false);
         await page.locator('#ooc-chat-label').click(); await page.locator('[data-ooc-tab="persona"]').click();
         assert.equal(await page.locator('#ooc-chat-persona-input').inputValue(), 'Legacy persona.');
         await page.getByRole('button', { name: '추가', exact: true }).click();
@@ -72,6 +76,14 @@ if(!localStorage.getItem('seeded')){localStorage.setItem('OOC_CHAT_PERSONA_PROMP
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `qa-ooc-${width}.png`) });
         }
         await page.locator('#ooc-chat-popover-close').click();
+        await page.evaluate(()=>{harness.savedTranslator=window.inputTranslator;delete window.inputTranslator;});
+        await page.locator('#ooc-chat-input').fill('번역 없이 전송');await page.locator('#ooc-chat-send').click();
+        await page.waitForFunction(()=>harness.prompts.length===1&&!document.querySelector('#ooc-chat-input').disabled);
+        assert.equal(await page.locator('#chat .mes_text').textContent(),'번역 없이 전송');
+        assert.equal(await page.evaluate(()=>harness.requests.length),0);
+        await page.evaluate(()=>{window.inputTranslator=harness.savedTranslator;});
+        await integrationChecked(true);await page.reload();await page.waitForFunction(()=>window.ready);
+        assert.equal(await page.locator('#ooc-chat-translate-input').isChecked(),true);
         await page.evaluate(()=>harness.ctx.chat.push({is_system:true,is_user:false,mes:'Synthetic system notice'}));
         await page.locator('#send_textarea').fill('일반 채팅 초안'); await page.locator('#ooc-chat-input').fill('설명해 줘');
         await page.locator('#ooc-chat-send').click(); await page.waitForFunction(() => harness.requests.length === 1);
@@ -92,6 +104,12 @@ if(!localStorage.getItem('seeded')){localStorage.setItem('OOC_CHAT_PERSONA_PROMP
         await page.evaluate(async () => { harness.chatId='two';harness.ctx.chat.length=0;await harness.ctx.eventSource.emit('changed');document.querySelector('#ooc-chat-input').value='New draft';harness.requests[2].resolve({content:'Late result'}); });
         await page.waitForFunction(() => !document.querySelector('#ooc-chat-input').disabled);
         assert.equal(await page.locator('#ooc-chat-input').inputValue(), 'New draft'); assert.equal(await page.evaluate(() => harness.ctx.chat.length), 0);
+        await page.locator('#ooc-chat-input').fill('번역 중 설정 변경');await page.locator('#ooc-chat-send').click();await page.waitForFunction(()=>harness.requests.length===4);
+        await integrationChecked(false);await integrationChecked(true);await page.evaluate(()=>harness.requests[3].resolve({content:'Late after setting change'}));
+        await page.waitForFunction(()=>!document.querySelector('#ooc-chat-input').disabled);
+        assert.equal(await page.locator('#ooc-chat-input').inputValue(),'번역 중 설정 변경');assert.equal(await page.evaluate(()=>harness.ctx.chat.length),0);
+        await integrationChecked(false);await page.reload();await page.waitForFunction(()=>window.ready);
+        assert.equal(await page.locator('#ooc-chat-translate-input').isChecked(),false);
         // Delete all presets and verify retained legacy key cannot resurrect them.
         await page.locator('#ooc-chat-label').click(); await page.locator('[data-ooc-tab="persona"]').click();
         await page.locator('.ooc-chat-persona-actions').getByRole('button', { name: '삭제', exact: true }).click();
