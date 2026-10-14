@@ -1,4 +1,4 @@
-// OOC Chat v1.6.0
+// OOC Chat v1.6.1
 import { extension_settings, getContext } from '../../../extensions.js';
 import { oai_settings, promptManager } from '../../../openai.js';
 import { saveSettingsDebounced, getCurrentChatId, is_send_press } from '../../../../script.js';
@@ -31,6 +31,7 @@ function setSendingState(v){sending=v;const i=document.getElementById(INPUT_ID),
 async function emitIfAvailable(c,n,id){const t=c?.eventTypes?.[n];if(t&&c?.eventSource?.emit)await c.eventSource.emit(t,id);}
 function getInstruction(){return String(settings.instruction??'').trim();}
 function normalizeOocInput(text){const trimmed=String(text??'').trim();const match=trimmed.match(/^\(\s*ooc\s*:\s*([\s\S]*?)\s*\)$/i);return match?match[1].trim():trimmed;}
+function newOocId(){return globalThis.crypto?.randomUUID?.()??('ooc-'+Date.now()+'-'+Math.random().toString(36).slice(2));}
 function buildOocMessageText(text,instruction=getInstruction()){const inner=instruction?`${instruction} ${text}`:text;return `(OOC: ${inner})`;}
 function buildOocGenerationText(text,instruction,persona){const p=String(persona??'').trim();if(!p)return buildOocMessageText(text,instruction);const request=instruction?`${instruction} ${text}`:text;return `(OOC:\n<OOC_INSTRUCTION>\n${p}\n</OOC_INSTRUCTION>\n\n<OOC_REQUEST>\n${request}\n</OOC_REQUEST>\n)`;}
 function getOocDisplayText(m){if(!m?.extra?.ooc_chat)return null;if(typeof m.extra.ooc_display_text==='string')return m.extra.ooc_display_text;const raw=String(m.mes??''),match=raw.match(/^\(ooc:\s*([\s\S]*?)\)$/i);if(!match)return raw;let inner=match[1].trim();const candidates=[typeof m.extra.ooc_instruction==='string'?m.extra.ooc_instruction.trim():'',getInstruction(),defaultSettings.instruction].filter(Boolean);for(const p of candidates){if(inner.toLowerCase().startsWith(p.toLowerCase())){inner=inner.slice(p.length).trimStart();break;}}return inner;}
@@ -71,7 +72,7 @@ function savePersonaPrompt(id,name,prompt){
     const store=getPersonaStore(),title=String(name??'').trim();
     if(!title)throw new Error('프롬프트 이름을 입력해 줘.');
     if(store.items.some(item=>item.name===title&&item.id!==id))throw new Error('같은 이름이 있어. 다른 이름을 입력해 줘.');
-    const item=id?store.items.find(item=>item.id===id):{id:globalThis.crypto?.randomUUID?.()??('ooc-'+Date.now()+'-'+Math.random().toString(36).slice(2)),name:title,prompt:''};
+    const item=id?store.items.find(item=>item.id===id):{id:newOocId(),name:title,prompt:''};
     if(!item)throw new Error('수정할 프롬프트를 찾을 수 없어.');
     item.name=title;item.prompt=String(prompt??'');if(!id)store.items.push(item);
     store.selectedId=item.id;writePersonaStore(store);return item.id;
@@ -130,7 +131,9 @@ globalThis.oocChatGenerationInterceptor=function(coreChat,contextSize,abort){
     try{
         job.assertCurrent();
         if(job.chat[job.messageId]!==job.message||job.message.mes!==job.storedText)throw new Error('OOC 메시지가 변경되어 생성을 중단했어.');
-        const target=coreChat.find(item=>item.index===job.messageId&&item.is_user&&item.extra?.ooc_chat);
+        // Model-context indexes are assigned after system-message filtering,
+        // so they cannot identify a message in the saved chat array.
+        const target=coreChat.find(item=>item.is_user&&item.extra?.ooc_chat&&item.extra.ooc_request_id===job.message.extra.ooc_request_id);
         if(!target)throw new Error('모델에 전달할 OOC 메시지를 찾을 수 없어.');
         if(job.persona.trim())target.mes=buildOocGenerationText(job.text,job.instruction,job.persona);
     }catch(e){abort(true);toast(`OOC 생성 오류: ${e.message}`,'error');}
@@ -155,7 +158,7 @@ async function sendOocMessage(){
         }
         assertCurrent(true);if(is_send_press)throw new Error('다른 응답이 생성 중이어서 OOC 전송을 중단했어.');
         storedText=buildOocMessageText(text,instruction);
-        message={name:c.name1,is_user:true,is_system:false,send_date:new Date().toISOString(),mes:storedText,extra:{ooc_chat:true,ooc_instruction:instruction}};
+        message={name:c.name1,is_user:true,is_system:false,send_date:new Date().toISOString(),mes:storedText,extra:{ooc_chat:true,ooc_instruction:instruction,ooc_request_id:newOocId()}};
         chat.push(message);const messageId=chat.length-1;
         await c.saveChat();saved=true;assertCurrent(true);
         input.value='';resizeInput(input);c.scrollChatToBottom?.();
@@ -182,6 +185,6 @@ function ensureUi(){ensureOocBar();injectSettingsPanel();}
 function scheduleUiBootstrap(){[0,250,1000,2500,5000].forEach(d=>setTimeout(ensureUi,d));}
 function bindDocumentHandlers(){if(documentHandlersBound)return;documentHandlersBound=true;document.addEventListener('pointerdown',e=>{const p=document.getElementById(POPOVER_ID);if(!p||p.hidden)return;const l=document.getElementById(LABEL_ID);if(p.contains(e.target)||l?.contains(e.target))return;closePromptPopover();},true);document.addEventListener('keydown',e=>{if(e.key==='Escape')closePromptPopover();});window.addEventListener('resize',()=>{const p=document.getElementById(POPOVER_ID);if(p&&!p.hidden)positionPromptPopover();});}
 function bindEvents(){if(eventsBound)return;const c=getContext(),es=c?.eventSource,et=c?.eventTypes;if(!es||!et)return;if(et.APP_READY)es.on(et.APP_READY,()=>{ensureUi();scheduleVisibleDecoration();});if(et.CHAT_CHANGED)es.on(et.CHAT_CHANGED,()=>{chatRevision+=1;if(activeSend?.generating&&is_send_press)c.stopGeneration?.();activeSend?.controller.abort();activeSend?.cleanup();ensureOocBar();closePromptPopover();scheduleVisibleDecoration();});if(et.OAI_PRESET_CHANGED_AFTER)es.on(et.OAI_PRESET_CHANGED_AFTER,()=>{const p=document.getElementById(POPOVER_ID);if(p&&!p.hidden){renderPromptPopover();requestAnimationFrame(positionPromptPopover);}});if(et.USER_MESSAGE_RENDERED)es.on(et.USER_MESSAGE_RENDERED,id=>decorateOocMessage(id));if(et.MESSAGE_EDITED)es.on(et.MESSAGE_EDITED,id=>setTimeout(()=>decorateOocMessage(id),0));eventsBound=true;}
-async function initOocChat(){if(initialized)return;initialized=true;loadSettings();bindEvents();bindDocumentHandlers();ensureUi();scheduleUiBootstrap();scheduleVisibleDecoration();console.log('[OOC Chat] v1.6.0 loaded');}
+async function initOocChat(){if(initialized)return;initialized=true;loadSettings();bindEvents();bindDocumentHandlers();ensureUi();scheduleUiBootstrap();scheduleVisibleDecoration();console.log('[OOC Chat] v1.6.1 loaded');}
 export async function init(){await initOocChat();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initOocChat,{once:true});else initOocChat();

@@ -14,7 +14,7 @@ function setup({ text = '설명해 줘', storage = new Map(), translator = true 
     const button = { disabled: false, classList: { toggle() {} }, setAttribute() {} };
     const listeners = {}, requests = [], saves = [], rendered = [], prompts = [], toasts = [];
     const entries = { a: { enabled: true }, b: { enabled: false } };
-    let chatId = 'first', failStorage = false, failSave = false, saveHook, generateHook;
+    let chatId = 'first', failStorage = false, failSave = false, saveHook, generateHook, copyHook;
     const extension_settings = { OOC_CHAT: { instruction: 'Answer in English.', promptExclusions: { Default: ['a', 'b'] } } };
     const context = {
         chat: [], characterId: 0, groupId: null, name1: 'Tester',
@@ -31,7 +31,8 @@ function setup({ text = '설명해 줘', storage = new Map(), translator = true 
         addOneMessage: message => rendered.push(message.mes),
         executeSlashCommandsWithOptions: async () => {
             if (generateHook) await generateHook();
-            const copy = context.chat.map((m, index) => ({ ...m, index }));
+            let copy = context.chat.filter(m => !m.is_system).map((m, index) => ({ ...m, index }));
+            if(copyHook)copy=copyHook(copy);
             let aborted = false;
             sandbox.oocChatGenerationInterceptor(copy, 4096, () => { aborted = true; });
             if (!aborted) { prompts.push(copy); await context.saveChat(); }
@@ -61,6 +62,7 @@ function setup({ text = '설명해 줘', storage = new Map(), translator = true 
         edit: value => { input.value = value; vm.runInContext('inputRevision+=1;', sandbox); },
         failStorage: value => { failStorage = value; }, failSave: value => { failSave = value; },
         onSave: fn => { saveHook = fn; }, onGenerate: fn => { generateHook = fn; },
+        onModelCopy: fn => { copyHook=fn; },
     };
 }
 
@@ -210,4 +212,30 @@ test('chat switch during an active OOC generation requests host cancellation', a
     s.onGenerate(()=>new Promise(resolve=>{resume=resolve;}));
     const pending=s.sendOocMessage();await flush();s.sandbox.is_send_press=true;
     await s.changeChat();assert.equal(stopped,1);resume();await pending;assert.equal(s.prompts.length,0);
+});
+
+test('system messages excluded by the host cannot shift the OOC target out of the model request', async () => {
+    const s=setup({text:'Explain.',storage:new Map([[LEGACY,'Persona']])});
+    s.context.chat.push({is_system:true,is_user:false,mes:'System notice'},{is_system:false,is_user:false,mes:'Greeting'});
+    await s.sendOocMessage();
+    assert.equal(s.prompts.length,1,JSON.stringify(s.toasts));
+    assert.equal(s.prompts[0][1].mes,s.buildOocGenerationText('Explain.','Answer in English.','Persona'));
+    assert.equal(s.context.chat[2].mes,'(OOC: Answer in English. Explain.)');
+});
+
+test('request identity survives deep copies and absent model indexes without applying to an old OOC', async () => {
+    const s=setup({text:'Repeat.',storage:new Map([[LEGACY,'Current persona']])});
+    s.context.chat.push({is_system:true,mes:'Notice'},{is_user:true,mes:'(OOC: Repeat.)',extra:{ooc_chat:true}});
+    s.onModelCopy(copy=>JSON.parse(JSON.stringify(copy)).map(({index,...message})=>message));
+    await s.sendOocMessage();assert.equal(s.prompts.length,1);assert.equal(s.prompts[0][0].mes,'(OOC: Repeat.)');
+    assert.ok(s.prompts[0][1].mes.includes('Current persona'));
+    const firstId=s.context.chat.at(-1).extra.ooc_request_id;s.input.value='Repeat.';await s.sendOocMessage();
+    assert.notEqual(s.context.chat.at(-1).extra.ooc_request_id,firstId);
+    assert.ok(!s.prompts[1][1].mes.includes('OOC_INSTRUCTION'));assert.ok(s.prompts[1][2].mes.includes('Current persona'));
+});
+
+test('missing request identity in the model copy fails safely instead of using another OOC', async () => {
+    const s=setup({text:'Explain.'});s.onModelCopy(copy=>copy.map(message=>({...message,extra:{ooc_chat:true}})));
+    await s.sendOocMessage();assert.equal(s.prompts.length,0);assert.equal(s.context.chat[0].mes,'(OOC: Answer in English. Explain.)');
+    assert.equal(s.entries.a.enabled,true);assert.equal(s.input.disabled,false);
 });
