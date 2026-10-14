@@ -270,6 +270,8 @@ body.no-blur #ooc-chat-prompt-popover {
 
 .ooc-chat-popover-body {
     min-height: 0;
+    max-height: calc(100dvh - 140px);
+    overflow-y: auto;
 }
 
 .ooc-chat-prompt-list {
@@ -331,6 +333,12 @@ body.no-blur #ooc-chat-prompt-popover {
     padding-top: 8px;
 }
 
+.ooc-chat-persona-pane > .text_pole {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+}
+
 .ooc-chat-persona-input {
     box-sizing: border-box;
     width: 100%;
@@ -352,6 +360,7 @@ body.no-blur #ooc-chat-prompt-popover {
     display: flex;
     justify-content: flex-end;
     gap: 6px;
+    flex-wrap: wrap;
 }
 
 .ooc-chat-persona-actions .menu_button {
